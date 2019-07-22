@@ -4,10 +4,11 @@
     "node": true,
     "es6": true
   },
-  "ecmaFeatures": {
-    "modules": true
-  },
   "rules": {
-    "valid-jsdoc": 2
+    "valid-jsdoc": 2,
+    "semi": [2, "never"]
+  },
+  "parserOptions": {
+    "sourceType": "module"
   }
 }

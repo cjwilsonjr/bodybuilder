@@ -1,12 +1,14 @@
 <html>
   <head>
+    <title>Bodybuilder | An elasticsearch query body builder</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <link rel="stylesheet" href="codemirror.css">
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="assets/codemirror.css">
+    <link rel="stylesheet" href="assets/styles.css">
+    <link rel="icon" type="image/x-icon" href="assets/favicon.ico" />
   </head>
   <body>
     <div class="bb_headers">
-      <img class="bb_logo" src="ic-logo.png" alt="bodybuilder">
+      <img class="bb_logo" src="assets/ic-logo.png" alt="bodybuilder">
       <h1 class="bb_h1">Bodybuilder</h1>
 
       <h2 class="bb_h2">
@@ -15,10 +17,16 @@
         Easily build complex queries for elasticsearch with a simple, predictable api.
       </h2>
 
-      <a class="bb_button-github" href="https://github.com/danpaz/bodybuilder">
-        <img class="bb_icon-github" src="ic-github.png" alt="github">
-        <span>View on GitHub</span>
-      </a>
+      <div class="bb_buttons">
+        <a class="bb_button-docs" href="/docs">
+          <img class="bb_icon-github" src="assets/ic-docs.png" alt="Documentation">
+          <span>Read the Docs</span>
+        </a>
+        <a class="bb_button-github" href="https://github.com/danpaz/bodybuilder">
+          <img class="bb_icon-github" src="assets/ic-github.png" alt="github">
+          <span>View on GitHub</span>
+        </a>
+      </div>
     </div>
     <div class="bb_textareas">
       <div class="bb_textarea">
@@ -29,8 +37,14 @@
       </div>
     </div>
 
+    <div>
+      <a href="https://www.npmjs.com/package/bodybuilder"><img src="https://img.shields.io/npm/v/bodybuilder.svg?link=http://left"></a>
+      <a href="https://www.npmjs.com/package/bodybuilder"><img src="https://img.shields.io/npm/dm/bodybuilder.svg?style=flat&link=http://npmjs.org/danpaz/bodybuilder"></a>
+      <a href="https://github.com/danpaz/bodybuilder"><img src="https://img.shields.io/github/stars/danpaz/bodybuilder.svg?style=social&link=http://github.com/danpaz/bodybuilder"></a>
+    </div>
+
     <script type="text/javascript" src="browser/bodybuilder.min.js" charset="utf-8"></script>
-    <script src="codemirror-compressed.js"></script>
+    <script src="assets/codemirror-compressed.js"></script>
     <script>
       var inputTextarea = document.getElementById('input_textarea');
       var outputTextarea = document.getElementById('output_textarea');
@@ -40,6 +54,7 @@
       });
       var outputEditor = CodeMirror(outputTextarea, {
         lineNumbers: true,
+        readOnly: true,
       });
 
       function onInputChange(cm, change) {
@@ -49,12 +64,13 @@
           var json = JSON.stringify(newOutput, null, 2);
           outputEditor.setValue(json);
         } catch (err) {
+          outputEditor.setValue(err.toString());
           console.error('invalid input', err);
         }
       }
 
       inputEditor.on('change', onInputChange);
-      inputEditor.setValue(`new Bodybuilder()
+      inputEditor.setValue(`bodybuilder()
         .query('match', 'message', 'this is a test')
         .filter('term', 'user', 'kimchy')
         .filter('term', 'user', 'herald')

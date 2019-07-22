@@ -1,287 +1,252 @@
 import _ from 'lodash'
-import filters from './filters'
-import AggregationBuilder from './aggregations/aggregation-builder'
-import queries from './queries'
-import { boolMerge } from './utils'
+import queryBuilder from './query-builder'
+import filterBuilder from './filter-builder'
+import aggregationBuilder from './aggregation-builder'
+import { sortMerge } from './utils'
 
 /**
- * The main builder class.
+ * **http://bodybuilder.js.org**
  *
- * @example
- * var body = new Bodybuilder()
- *   .query('match', 'text', 'this is a test')
+ * **https://github.com/danpaz/bodybuilder**
+ *
+ * Bodybuilder is a small library that makes elasticsearch queries easier to
+ * write, read, and maintain 💪. The whole public api is documented here, but
+ * how about a simple example to get started:
+ *
+ * ```
+ * bodybuilder()
+ *   .query('match', 'message', 'this is a test')
  *   .build()
+ *
+ * // results in:
+ * {
+ *   query: {
+ *     match: {
+ *       message: 'this is a test'
+ *     }
+ *   }
+ * }
+ * ```
+ *
+ * You can chain multiple methods together to build up a more complex query.
+ *
+ * ```
+ * bodybuilder()
+ *   .query('match', 'message', 'this is a test')
+ *   .filter('term', 'user', 'kimchy')
+ *   .notFilter('term', 'user', 'cassie')
+ *   .aggregation('terms', 'user')
+ *   .build()
+ * ```
+ *
+ * For nested sub-queries or sub-aggregations, pass a function as the last
+ * argument and build the nested clause in the body of that function. Note that
+ * you must `return` the builder object in the nested function. For example:
+ *
+ * ```
+ * bodybuilder()
+ *   .query('nested', 'path', 'obj1', (q) => {
+ *     return q.query('match', 'obj1.color', 'blue')
+ *   })
+ *   .build()
+ * ```
+ *
+ *
+ *
+ * The entire elasticsearch query DSL is available using the bodybuilder api.
+ * There are many more examples in the docs as well as in the tests.
+ *
+ * @return {bodybuilder} Builder.
  */
-class BodyBuilder {
+export default function bodybuilder () {
+  let body = {}
 
-  constructor() {
-    this._body = {}
-    this._filters = {}
-    this._queries = {}
-    this._aggBuilder = Object.create(AggregationBuilder);
-  }
+  return Object.assign(
+    {
+      /**
+       * Set a sort direction on a given field.
+       *
+       * ```
+       * bodybuilder()
+       *   .sort('timestamp', 'desc')
+       *   .build()
+       * ```
+       * You can sort multiple fields at once
+       *
+       * ```
+       * bodybuilder()
+       *  .sort([
+       *    {"categories": "desc"},
+       *    {"content": "asc"}
+       *  ])
+       *   .build()
+       * ```
+       * Geo Distance sorting is also supported & it's the only sort type that allows for duplicates
+       *
+       * ```
+       * bodyBuilder().sort([
+       *     {
+       *       _geo_distance: {
+       *         'a.pin.location': [-70, 40],
+       *         order: 'asc',
+       *         unit: 'km',
+       *         mode: 'min',
+       *         distance_type: 'sloppy_arc'
+       *       }
+       *     },
+       *     {
+       *       _geo_distance: {
+       *         'b.pin.location': [-140, 80],
+       *         order: 'asc',
+       *         unit: 'km',
+       *         mode: 'min',
+       *         distance_type: 'sloppy_arc'
+       *       }
+       *     }
+       *   ])
+       *   .sort([
+       *     { timestamp: 'desc' },
+       *     { content: 'desc' },
+       *     { content: 'asc' },
+       *    {"price" : {"order" : "asc", "mode" : "avg"}}
+       *   ])
+       * .build()
+       * ```
+       *
+       * @param  {String} field             Field name.
+       * @param  {String} [direction='asc'] A valid direction: 'asc' or 'desc'.
+       * @returns {bodybuilder} Builder.
+       */
+      sort(field, direction = 'asc') {
+        body.sort = body.sort || []
 
-  /**
-   * Constructs the elasticsearch query body in its current state.
-   * @param  {String} version             Version to generate.
-   * @returns {Object} Query body.
-   */
-  build(version) {
-    if (version === 'v2') return this._buildV2()
-    return this._buildV1()
-  }
+        if (_.isArray(field)) {
 
-  _buildV1() {
-    let body = _.clone(this._body)
-    const filters = this._filters
-    const queries = this._queries
-    const aggregations = this._aggBuilder.aggregations
+            if(_.isPlainObject(body.sort)) {
+                body.sort = [body.sort]
+            }
 
-    if (!_.isEmpty(filters)) {
-      _.set(body, 'query.filtered.filter', filters)
+            if(_.isArray(body.sort)) {
+                _.each(field, (sorts) => {
+                    if(_.isString(sorts)) {
+                        return sortMerge(body.sort, sorts, direction)
+                    }
+                    _.each(sorts, (value, key) => {
+                        sortMerge(body.sort, key, value)
+                    })
+                })
+            }
+        } else {
+          sortMerge(body.sort, field, direction)
+        }
+        return this
+      },
 
-      if (!_.isEmpty(queries)) {
-        _.set(body, 'query.filtered.query', queries)
+      /**
+       * Set a *from* offset value, for paginating a query.
+       *
+       * @param  {Number} quantity The offset from the first result you want to
+       *                           fetch.
+       * @returns {bodybuilder} Builder.
+       */
+      from(quantity) {
+        body.from = quantity
+        return this
+      },
+
+      /**
+       * Set a *size* value for maximum results to return.
+       *
+       * @param  {Number} quantity Maximum number of results to return.
+       * @returns {bodybuilder} Builder.
+       */
+      size(quantity) {
+        body.size = quantity
+        return this
+      },
+
+      /**
+       * Set any key-value on the elasticsearch body.
+       *
+       * @param  {String} k Key.
+       * @param  {any}    v Value.
+       * @returns {bodybuilder} Builder.
+       */
+      rawOption(k, v) {
+        body[k] = v
+        return this
+      },
+
+      /**
+       * Collect all queries, filters, and aggregations and build the entire
+       * elasticsearch query.
+       *
+       * @param  {string} [version] (optional) Pass `'v1'` to build for the
+       *                            elasticsearch 1.x query dsl.
+       *
+       * @return {Object} Elasticsearch query body.
+       */
+      build(version) {
+        const queries = this.getQuery()
+        const filters = this.getFilter()
+        const aggregations = this.getAggregations()
+
+        if (version === 'v1') {
+          return _buildV1(body, queries, filters, aggregations)
+        }
+
+        return _build(body, queries, filters, aggregations)
       }
 
-    } else if (!_.isEmpty(queries)) {
-      _.set(body, 'query', queries)
-    }
-
-    if (!_.isEmpty(aggregations)) {
-      _.set(body, 'aggregations', aggregations)
-    }
-
-    return body
-  }
-
-  _buildV2() {
-    let body = _.clone(this._body)
-    const filters = this._filters
-    const queries = this._queries
-    const aggregations = this._aggBuilder.aggregations
-
-    if (!_.isEmpty(filters)) {
-      let filterBody = {}
-      let queryBody = {}
-      _.set(filterBody, 'query.bool.filter', filters)
-      if (!_.isEmpty(queries.bool)) {
-        _.set(queryBody, 'query.bool', queries.bool)
-      } else if (!_.isEmpty(queries)) {
-        _.set(queryBody, 'query.bool.must', queries)
-      }
-      _.merge(body, filterBody, queryBody)
-    } else if (!_.isEmpty(queries)) {
-      _.set(body, 'query', queries)
-    }
-
-    if (!_.isEmpty(aggregations)) {
-      _.set(body, 'aggs', aggregations)
-    }
-
-    return body
-  }
-
-  /**
-   * Set a sort direction on a given field.
-   *
-   * @param  {String} field             Field name.
-   * @param  {String} [direction='asc'] A valid direction: 'asc' or 'desc'.
-   * @returns {BodyBuilder} Builder class.
-   */
-  sort(field, direction = 'asc') {
-    this._body.sort = {
-      [field]: {
-        order: direction
-      }
-    }
-    return this
-  }
-
-  /**
-   * Set a *from* offset value, for paginating a query.
-   *
-   * @param  {Number} quantity The offset from the first result you want to
-   *                           fetch.
-   * @returns {BodyBuilder} Builder class.
-   */
-  from(quantity) {
-    this._body.from = quantity
-    return this
-  }
-
-  /**
-   * Set a *size* value for maximum results to return.
-   *
-   * @param  {Number} quantity Maximum number of results to return.
-   * @returns {BodyBuilder} Builder class.
-   */
-  size(quantity) {
-    this._body.size = quantity
-    return this
-  }
-
-  /**
-   * Set any key-value on the elasticsearch body.
-   *
-   * @param  {String} k Key.
-   * @param  {String} v Value.
-   * @returns {BodyBuilder} Builder class.
-   */
-  rawOption(k, v) {
-    this._body[k] = v
-    return this
-  }
-
-  /**
-   * Apply a filter of a given type providing all the necessary arguments,
-   * passing these arguments directly to the specified filter builder. Merges
-   * existing filter(s) with the new filter.
-   *
-   * @param  {String}  type Name of the filter type.
-   * @param  {...args} args Arguments passed to filter builder.
-   * @returns {BodyBuilder} Builder class.
-   */
-  filter(type, ...args) {
-    this._filter('and', type, ...args)
-    return this
-  }
-
-  _filter(boolType, filterType, ...args) {
-    let klass = filters[filterType]
-    let newFilter
-
-    if (!klass) {
-      throw new TypeError(`Filter type ${filterType} not found.`)
-    }
-
-    newFilter = klass(...args)
-    this._filters = boolMerge(newFilter, this._filters, boolType)
-    return this
-  }
-
-  /**
-   * Alias to BodyBuilder#filter.
-   *
-   * @private
-   *
-   * @returns {BodyBuilder} Builder class.
-   */
-  andFilter(...args) {
-    return this._filter(...args)
-  }
-
-  orFilter(type, ...args) {
-    this._filter('or', type, ...args)
-    return this
-  }
-
-  notFilter(type, ...args) {
-    this._filter('not', type, ...args)
-    return this
-  }
-
-  /**
-   * Apply a query of a given type providing all the necessary arguments,
-   * passing these arguments directly to the specified query builder. Merges
-   * existing query(s) with the new query.
-   *
-   * @param  {String}  type Name of the query type.
-   * @param  {...args} args Arguments passed to query builder.
-   * @returns {BodyBuilder} Builder class.
-   */
-  query(type, ...args) {
-    this._query('and', type, ...args)
-    return this
-  }
-
-  _query(boolType, queryType, ...args) {
-    let klass = queries[queryType]
-    let newQuery
-
-    if (!klass) {
-      throw new TypeError(`Query type ${queryType} not found.`)
-    }
-
-    newQuery = klass(...args)
-    this._queries = boolMerge(newQuery, this._queries, boolType)
-    return this
-  }
-
-  /**
-   * Alias to BodyBuilder#query.
-   *
-   * @private
-   *
-   * @returns {BodyBuilder} Builder class.
-   */
-  andQuery(...args) {
-    return this.query(...args)
-  }
-
-  /**
-   * Alias to BodyBuilder#query.
-   *
-   * @private
-   *
-   * @returns {BodyBuilder} Builder class.
-   */
-  addQuery(...args) {
-    return this.query(...args)
-  }
-
-  orQuery(type, ...args) {
-    this._query('or', type, ...args)
-    return this
-  }
-
-  notQuery(type, ...args) {
-    this._query('not', type, ...args)
-    return this
-  }
-
-  /**
-   * Apply a aggregation of a given type providing all the necessary arguments,
-   * passing these arguments directly to the specified aggregation builder.
-   * Merges existing aggregation(s) with the new aggregation. You may nest
-   * aggregations by passing in a `Function` callback as the last parameter.
-   * The callback will receive the newly built aggregation upon which you can
-   * keep calling `aggregation(type, ...args)`.
-   *
-   * @example
-   * var body = new Bodybuilder()
-   *   .query('match', 'text', 'this is a test')
-   *   .aggregation('terms', 'someField', 'bySomeField',
-   *     // Nest aggregations on "bySomeField"
-   *     agg =>
-   *       agg
-   *         .agregation('max', 'someOtherField')
-   *         .aggregation('missing', 'anotherField')
-   *    )
-   *   .build()
-   *
-   *
-   * @param  {String}  type Name of the aggregation type.
-   * @param  {...args} args Arguments passed to aggregation builder. May include
-   *                        am optional nesting function as its last element.
-   * @returns {BodyBuilder} Builder class.
-   */
-  aggregation(type, ...args) {
-    this._aggBuilder.add(type, ...args)
-    return this
-  }
-
-  /**
-   * Alias to BodyBuilder#aggregation.
-   *
-   * @private
-   *
-   * @returns {BodyBuilder} Builder class.
-   */
-  agg(...args) {
-    return this.aggregation(...args)
-  }
-
+    },
+    queryBuilder(),
+    filterBuilder(),
+    aggregationBuilder()
+  )
 }
 
-module.exports = BodyBuilder;
+function _buildV1(body, queries, filters, aggregations) {
+  let clonedBody = _.cloneDeep(body)
+
+  if (!_.isEmpty(filters)) {
+    _.set(clonedBody, 'query.filtered.filter', filters)
+
+    if (!_.isEmpty(queries)) {
+      _.set(clonedBody, 'query.filtered.query', queries)
+    }
+
+  } else if (!_.isEmpty(queries)) {
+    _.set(clonedBody, 'query', queries)
+  }
+
+  if (!_.isEmpty(aggregations)) {
+    _.set(clonedBody, 'aggregations', aggregations)
+  }
+  return clonedBody
+}
+
+function _build(body, queries, filters, aggregations) {
+  let clonedBody = _.cloneDeep(body)
+
+  if (!_.isEmpty(filters)) {
+    let filterBody = {}
+    let queryBody = {}
+    _.set(filterBody, 'query.bool.filter', filters)
+    if (!_.isEmpty(queries.bool)) {
+      _.set(queryBody, 'query.bool', queries.bool)
+    } else if (!_.isEmpty(queries)) {
+      _.set(queryBody, 'query.bool.must', queries)
+    }
+    _.merge(clonedBody, filterBody, queryBody)
+  } else if (!_.isEmpty(queries)) {
+    _.set(clonedBody, 'query', queries)
+  }
+
+  if (!_.isEmpty(aggregations)) {
+    _.set(clonedBody, 'aggs', aggregations)
+  }
+
+  return clonedBody
+}
+
+module.exports = bodybuilder

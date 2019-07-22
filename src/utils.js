@@ -1,57 +1,150 @@
 import _ from 'lodash'
-import queries from './queries'
+import queryBuilder from './query-builder'
+import filterBuilder from './filter-builder'
 
 /**
- * Extends lodash's assignWith by allowing array concatenation
- * and deep merging.
+ * Compound sort function into the list of sorts
  *
  * @private
  *
- * @param {Object} target Target.
- * @returns {Object} Merged object.
+ * @param  {Array} current Array of Elasticsearch sorts.
+ * @param  {String} field Field to sort.
+ * @param  {String|Object} value A valid direction ('asc', 'desc') or object with sort options
+ * @returns {Array} Array of Elasticsearch sorts.
  */
-export function mergeConcat(target) {
-  let args = Array.prototype.slice.call(arguments, 1)
+export function sortMerge(current, field, value) {
+  let payload
 
-  args.unshift(target)
-  args.push(function customizer(a, b) {
-    if (_.isPlainObject(a)) {
-      return _.assignWith(a, b, customizer)
-    } else if (_.isArray(a)) {
-      return a.concat(b)
-    } else {
-      return b;
-    }
+  if (_.isPlainObject(value)) {
+    payload = { [field]: _.assign({}, value) }
+  } else {
+    payload = { [field]: { order: value } }
+  }
+
+  const idx = _.findIndex(current, function (o) {
+    return o[field] != undefined
   })
-  return _.assignWith.apply(null, args)
+
+  if (field === '_geo_distance' || idx === -1) {
+    current.push(payload)
+  } else {
+    _.extend(current[idx], payload)
+  }
+
+  return current
 }
 
 /**
- * Merge two filters or queries using their Boolean counterparts.
+ * Generic builder for query, filter, or aggregation clauses.
  *
  * @private
  *
- * @param  {Object} newObj      New filter or query to add.
- * @param  {Object} currentObj  Old filter or query to merge into.
- * @param  {String} boolType    Type of boolean ('and', 'or', 'not').
- * @returns {Object} Combined filter or query.
+ * @param  {string|Object} field Field name or complete clause.
+ * @param  {string|Object} value Field value or inner clause.
+ * @param  {Object}        opts  Additional key-value pairs.
+ *
+ * @return {Object} Clause
  */
-export function boolMerge(newObj, currentObj, boolType = 'and') {
-  let boolCurrent
-  let boolNew
+export function buildClause (field, value, opts) {
+  const hasField = !_.isNil(field)
+  const hasValue = !_.isNil(value)
+  let mainClause = {}
 
-  // Only one, no need for bool.
-  if (_.isEmpty(currentObj)) {
-    // Allow starting with 'or' and 'not' queries.
-    if (boolType !== 'and') {
-      return queries.bool(boolType, newObj)
-    }
-    return newObj
+  if (hasValue) {
+    mainClause = {[field]: value}
+  } else if (_.isObject(field)) {
+    mainClause = field
+  } else if (hasField) {
+    mainClause = {field}
   }
 
-  // Make bools out of the new and existing filters.
-  boolCurrent = currentObj.bool ? currentObj : queries.bool('must', currentObj)
-  boolNew = newObj.bool ? newObj : queries.bool(boolType, newObj)
+  return Object.assign({}, mainClause, opts)
+}
 
-  return mergeConcat({}, boolCurrent, boolNew)
+export function toBool (filters) {
+  const unwrapped = {
+    must: unwrap(filters.and),
+    should: unwrap(filters.or),
+    must_not: unwrap(filters.not),
+    minimum_should_match: filters.minimum_should_match
+  }
+
+  if (
+    filters.and.length === 1 &&
+    !unwrapped.should &&
+    !unwrapped.must_not
+  ) {
+    return unwrapped.must
+  }
+
+  const cleaned = {}
+
+  if (unwrapped.must) {
+    cleaned.must = unwrapped.must
+  }
+  if (unwrapped.should) {
+    cleaned.should = filters.or
+  }
+  if (unwrapped.must_not) {
+    cleaned.must_not = filters.not
+  }
+  if (
+    unwrapped.minimum_should_match &&
+    filters.or.length > 1
+  ) {
+    cleaned.minimum_should_match = unwrapped.minimum_should_match
+  }
+
+  return {
+    bool: cleaned
+  }
+}
+
+function unwrap (arr) {
+  return arr.length > 1 ? arr : _.last(arr)
+}
+
+export function pushQuery (existing, boolKey, type, ...args) {
+  const nested = {}
+  if (_.isFunction(_.last(args))) {
+    const nestedCallback = args.pop()
+    const nestedResult = nestedCallback(
+      Object.assign(
+        {},
+        filterBuilder({ isInFilterContext: this.isInFilterContext }),
+        this.isInFilterContext
+          ? {}
+          : queryBuilder({ isInFilterContext: this.isInFilterContext })
+      )
+    )
+    if (!this.isInFilterContext && nestedResult.hasQuery()) {
+      nested.query = nestedResult.getQuery()
+    }
+    if (nestedResult.hasFilter()) {
+      nested.filter = nestedResult.getFilter()
+    }
+  }
+
+  if (
+    _.includes(['bool', 'constant_score'], type) &&
+    this.isInFilterContext &&
+    _.has(nested, 'filter.bool')
+  ) {
+    // nesting filters: We've introduced an unnecessary `filter.bool`
+    existing[boolKey].push(
+      {[type]: Object.assign(buildClause(...args), nested.filter.bool)}
+    )
+  } else if (
+    type === 'bool' &&
+    _.has(nested, 'query.bool')
+   ) {
+    existing[boolKey].push(
+      {[type]: Object.assign(buildClause(...args), nested.query.bool)}
+    )
+    } else {
+    // Usual case
+    existing[boolKey].push(
+      {[type]: Object.assign(buildClause(...args), nested)}
+    )
+  }
 }

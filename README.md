@@ -1,5 +1,5 @@
 # bodybuilder
-
+[![All Contributors](https://img.shields.io/badge/all_contributors-9-orange.svg?style=flat-square)](#contributors)
 [![npm version](https://badge.fury.io/js/bodybuilder.svg)](https://www.npmjs.com/package/bodybuilder)
 [![Build Status](https://travis-ci.org/danpaz/bodybuilder.svg?branch=master)](https://travis-ci.org/danpaz/bodybuilder)
 
@@ -8,13 +8,18 @@ elasticsearch with a simple, predictable api.
 
 ![bodybuilder](img/bodybuilder.jpeg)
 
-## Compatibility
+# Documentation
 
-Currently aims to support the full elasticsearch query DSL for versions 1.x.
-The elasticsearch 2.x query DSL is supported by providing a `v2` arguments
-when calling `build` function.
+**Check out the [API documentation](http://bodybuilder.js.org/docs)** for details and examples.
 
-Contributions are welcome!
+Use https://bodybuilder.js.org/ to test your constructions.
+
+## Elasticsearch compatibility
+
+Currently aims to support the full elasticsearch query DSL for all versions.
+
+The elasticsearch 1.x query DSL is supported by providing a `v1` argument
+when calling the `build` function.
 
 ## Install
 
@@ -23,35 +28,32 @@ Contributions are welcome!
 ## Usage
 
 ```js
-var Bodybuilder = require('bodybuilder')
-var body = new Bodybuilder() // A builder instance.
-body.query('match', 'message', 'this is a test')
-body.build() // Build 1.x DSL
-body.build('v2') // Build 2.x DSL
+var bodybuilder = require('bodybuilder')
+var body = bodybuilder().query('match', 'message', 'this is a test')
+body.build() // Build 2.x or greater DSL (default)
+body.build('v1') // Build 1.x DSL
 ```
 
-For each elasticsearch query body, create an instance of `Bodybuilder`, apply
+For each elasticsearch query body, create an instance of `bodybuilder`, apply
 the desired query/filter/aggregation clauses, and call `build` to retrieve the
 built query body.
 
 ## REPL
 
-Try it out on the command line using the node repl:
+Try it out on the command line using the node REPL:
 
     # Start the repl
-    node repl.js
-    # The Bodybuilder class is available in the context variable Bodybuilder
-    bodybuilder > var body = new Bodybuilder()
-    bodybuilder > body.query('match', 'message', 'this is a test').build()
+    node ./node_modules/bodybuilder/repl.js
+    # The builder is available in the context variable bodybuilder
+    bodybuilder > bodybuilder().query('match', 'message', 'this is a test').build()
 
 ### Queries
 
 ```js
-body.query(queryType, [arguments])
+bodybuilder().query([arguments])
 ```
 
-Creates a query of type `queryType`. Currently supported query types are listed
-[here](./src/queries/index.js).
+Creates a query of type `queryType`.
 
 #### Arguments
 
@@ -63,7 +65,7 @@ pattern:
 * `searchTerm` - The string to search for.
 
 ```js
-var body = new Bodybuilder().query('match', 'message', 'this is a test').build()
+var body = bodybuilder().query('match', 'message', 'this is a test').build()
 // body == {
 //   query: {
 //     match: {
@@ -76,11 +78,10 @@ var body = new Bodybuilder().query('match', 'message', 'this is a test').build()
 ### Filters
 
 ```js
-body.filter(filterType, [arguments])
+bodybuilder().filter([arguments])
 ```
 
-Creates a filtered query using filter of type `filterType`. Currently supported
-filter types are listed [here](./src/filters/index.js).
+Creates a filtered query using filter of type `filterType`.
 
 #### Arguments
 
@@ -92,10 +93,10 @@ pattern:
 * `searchTerm` - The string to search for.
 
 ```js
-var body = new Bodybuilder().filter('term', 'message', 'test').build()
+bodybuilder().filter('term', 'message', 'test').build()
 // body == {
 //   query: {
-//     filtered: {
+//     bool: {
 //       filter: {
 //         term: {
 //           message: 'test'
@@ -109,11 +110,10 @@ var body = new Bodybuilder().filter('term', 'message', 'test').build()
 ### Aggregations
 
 ```js
-body.aggregation(aggregationType, [arguments])
+bodybuilder().aggregation([arguments])
 ```
 
-Creates an aggregation of type `aggregationType`. Currently supported
-aggregation types are listed [here](./src/aggregations/index.js).
+Creates an aggregation of type `aggregationType`.
 
 #### Arguments
 
@@ -124,10 +124,13 @@ this pattern:
 * `fieldToAggregate` - The name of the field in your index to aggregate over.
 * `aggregationName` - (optional) A custom name for the aggregation. Defaults to
 `agg_<aggregationType>_<fieldToAggregate>`.
-* `nestingFunction` - (optional) A function used to define aggregations as children of the one being created. This _must_ be the last parameter set.
+* `aggregationOptions` - (optional) Additional key-value pairs to include in the
+aggregation object.
+* `nestingFunction` - (optional) A function used to define aggregations as
+children of the one being created. This _must_ be the last parameter set.
 
 ```js
-var body = new BodyBuilder().aggregation('terms', 'user').build()
+var body = bodybuilder().aggregation('terms', 'user').build()
 // body == {
 //   aggregations: {
 //     agg_terms_user: {
@@ -141,10 +144,15 @@ var body = new BodyBuilder().aggregation('terms', 'user').build()
 
 #### Nested aggregations
 
-To nest aggregations, pass a `function` as the last parameter in `[arguments]`. The `function` receives the recently built aggregation instance and is expected to return an `Object` which will be assigned to `.aggs` on the current aggregation. Aggregations in this scope behave like builders and you can call the chainable method `.aggregation(aggregationType, [arguments])` on them just as you would on the main `BodyBuilder`.
+To nest aggregations, pass a `function` as the last parameter in `[arguments]`.
+The `function` receives the recently built aggregation instance and is expected
+to return an `Object` which will be assigned to `.aggs` on the current
+aggregation. Aggregations in this scope behave like builders and you can call
+the chainable method `.aggregation([arguments])` on them just as you would on
+the main `bodybuilder`.
 
 ```js
-var body = new BodyBuilder().aggregation('terms', 'code', null, {
+var body = bodybuilder().aggregation('terms', 'code', {
       order: { _term: 'desc' },
       size: 1
     }, agg => agg.aggregation('terms', 'name')).build()
@@ -176,18 +184,19 @@ Multiple queries and filters are merged using the boolean query or filter (see
 [Combining Filters](https://www.elastic.co/guide/en/elasticsearch/guide/current/combining-filters.html)).
 
 ```js
-var body = new BodyBuilder().query('match', 'message', 'this is a test')
-                            .filter('term', 'user', 'kimchy')
-                            .filter('term', 'user', 'herald')
-                            .orFilter('term', 'user', 'johnny')
-                            .notFilter('term', 'user', 'cassie')
-                            .aggregation('terms', 'user')
-                            .build()
+var body = bodybuilder()
+  .query('match', 'message', 'this is a test')
+  .filter('term', 'user', 'kimchy')
+  .filter('term', 'user', 'herald')
+  .orFilter('term', 'user', 'johnny')
+  .notFilter('term', 'user', 'cassie')
+  .aggregation('terms', 'user')
+  .build()
 
 // body == {
 //   query: {
-//     filtered: {
-//       query: {
+//     bool: {
+//       must: {
 //         match: {
 //           message: 'this is a test'
 //         }
@@ -207,10 +216,42 @@ var body = new BodyBuilder().query('match', 'message', 'this is a test')
 //         }
 //       }
 //     },
-//     aggregations: {
-//       agg_terms_user: {
-//         terms: {
-//           field: 'user'
+//   },
+//   aggs: {
+//     agg_terms_user: {
+//       terms: {
+//         field: 'user'
+//       }
+//     }
+//   }
+// }
+```
+
+#### Nesting Filters and Queries
+
+It is even possible to nest filters, e.g. when some should and must filters have to be combined.
+
+```js
+var body = bodybuilder()
+    .orFilter('term', 'author', 'kimchy')
+    .orFilter('bool', b => b
+      .filter('match', 'message', 'this is a test')
+      .filter('term', 'type', 'comment')
+    )
+    .build()
+
+// body == {
+//   query: {
+//     bool: {
+//       filter: {
+//         bool: {
+//           should: [
+//             { term: { author: 'kimchy' } },
+//             { bool: { must: [
+//               { match: { message: 'this is a test' } },
+//               { term: { type: 'comment' } }
+//             ] } }
+//           ]
 //         }
 //       }
 //     }
@@ -224,17 +265,44 @@ Set a sort direction using `sort(field, direction)`, where direction defaults to
 ascending.
 
 ```js
-var body = new Bodybuilder().filter('term', 'message', 'test')
-                            .sort('date')
-                            .build()
+var body = bodybuilder()
+    .filter('term', 'message', 'test')
+    .sort('timestamp', 'desc')
+    .sort([{
+      "channel": {
+        "order": "desc"
+      }
+    }])
+    .sort([
+      {"categories": "desc"},
+      {"content": "asc"}
+    ])
+    .build()
+
 // body == {
-//   sort: {
-//     date: {
-//       order: 'asc'
+//   sort: [{
+//       "timestamp": {
+//         "order": "desc"
+//       }
+//     },
+//     {
+//       "channel": {
+//         "order": "desc"
+//       }
+//     },
+//     {
+//       "categories": {
+//         "order": "desc"
+//       }
+//     },
+//     {
+//       "content": {
+//         "order": "asc"
+//       }
 //     }
-//   },
+//   ],
 //   query: {
-//     filtered: {
+//     bool: {
 //       filter: {
 //         term: {
 //           message: 'test'
@@ -244,6 +312,8 @@ var body = new Bodybuilder().filter('term', 'message', 'test')
 //   }
 // }
 ```
+**Advanced usage:** Set a sort configuration object for the given sort field with additional [sort properties](https://www.elastic.co/guide/en/elasticsearch/reference/current/search-request-sort.html).
+`sort(field, { sort: 'asc', mode: 'min', ...})`
 
 ### From / Size
 
@@ -251,15 +321,17 @@ Set `from` and `size` parameters to configure the offset and maximum hits to be
 returned.
 
 ```js
-var body = new Bodybuilder().filter('term', 'message', 'test')
-                            .size(5)
-                            .from(10)
-                            .build()
+var body = bodybuilder()
+  .filter('term', 'message', 'test')
+  .size(5)
+  .from(10)
+  .build()
+
 // body == {
 //   size: 5,
 //   from: 10,
 //   query: {
-//     filtered: {
+//     bool: {
 //       filter: {
 //         term: {
 //           message: 'test'
@@ -276,13 +348,15 @@ Set any other search request option using `rawOption` passing in the key-value
 pair to include in the body.
 
 ```js
-var body = new Bodybuilder().filter('term', 'message', 'test')
-                            .rawOption('_sourceExclude', 'verybigfield')
-                            .build()
+var body = bodybuilder()
+  .filter('term', 'message', 'test')
+  .rawOption('_sourceExclude', 'verybigfield')
+  .build()
+
 // body == {
 //   _sourceExclude: 'verybigfield',
 //   query: {
-//     filtered: {
+//     bool: {
 //       filter: {
 //         term: {
 //           message: 'test'
@@ -298,3 +372,15 @@ var body = new Bodybuilder().filter('term', 'message', 'test')
 Run unit tests:
 
     npm test
+
+## Contributors
+
+Thanks goes to these wonderful people ([emoji key](https://github.com/kentcdodds/all-contributors#emoji-key)):
+
+<!-- ALL-CONTRIBUTORS-LIST:START - Do not remove or modify this section -->
+| [<img src="https://avatars3.githubusercontent.com/u/5665333?v=4" width="100px;"/><br /><sub>Daniel Paz-Soldan</sub>](http://danpaz.me/)<br />[💻](https://github.com/danpaz/bodybuilder/commits?author=danpaz "Code") [📖](https://github.com/danpaz/bodybuilder/commits?author=danpaz "Documentation") [🚇](#infra-danpaz "Infrastructure (Hosting, Build-Tools, etc)") [🤔](#ideas-danpaz "Ideas, Planning, & Feedback") | [<img src="https://avatars3.githubusercontent.com/u/476069?v=4" width="100px;"/><br /><sub>Nicolás Fantone</sub>](https://github.com/nfantone)<br />[💻](https://github.com/danpaz/bodybuilder/commits?author=nfantone "Code") [⚠️](https://github.com/danpaz/bodybuilder/commits?author=nfantone "Tests") | [<img src="https://avatars0.githubusercontent.com/u/967979?v=4" width="100px;"/><br /><sub>Nauval Atmaja</sub>](http://nauvalatmaja.com)<br />[💻](https://github.com/danpaz/bodybuilder/commits?author=npatmaja "Code") | [<img src="https://avatars2.githubusercontent.com/u/159764?v=4" width="100px;"/><br /><sub>Ferron H</sub>](https://ferronrsmith.github.io/)<br />[💻](https://github.com/danpaz/bodybuilder/commits?author=ferronrsmith "Code") [⚠️](https://github.com/danpaz/bodybuilder/commits?author=ferronrsmith "Tests") [🐛](https://github.com/danpaz/bodybuilder/issues?q=author%3Aferronrsmith "Bug reports") [📖](https://github.com/danpaz/bodybuilder/commits?author=ferronrsmith "Documentation") | [<img src="https://avatars3.githubusercontent.com/u/352835?v=4" width="100px;"/><br /><sub>Dave Cranwell</sub>](http://davecranwell.com)<br />[💻](https://github.com/danpaz/bodybuilder/commits?author=davecranwell "Code") | [<img src="https://avatars0.githubusercontent.com/u/5310458?v=4" width="100px;"/><br /><sub>Johannes Scharlach</sub>](https://github.com/johannes-scharlach)<br />[💻](https://github.com/danpaz/bodybuilder/commits?author=johannes-scharlach "Code") [📖](https://github.com/danpaz/bodybuilder/commits?author=johannes-scharlach "Documentation") [🤔](#ideas-johannes-scharlach "Ideas, Planning, & Feedback") | [<img src="https://avatars3.githubusercontent.com/u/102233?v=4" width="100px;"/><br /><sub>Anton Samper Rivaya</sub>](https://rivaya.com)<br />[💻](https://github.com/danpaz/bodybuilder/commits?author=antonsamper "Code") [📖](https://github.com/danpaz/bodybuilder/commits?author=antonsamper "Documentation") |
+| :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| [<img src="https://avatars2.githubusercontent.com/u/22251956?v=4" width="100px;"/><br /><sub>Suhas Karanth</sub>](https://github.com/sudo-suhas)<br />[💬](#question-sudo-suhas "Answering Questions") | [<img src="https://avatars1.githubusercontent.com/u/130874?v=4" width="100px;"/><br /><sub>Jacob Gillespie</sub>](https://github.com/jacobwgillespie)<br />[💻](https://github.com/danpaz/bodybuilder/commits?author=jacobwgillespie "Code") |
+<!-- ALL-CONTRIBUTORS-LIST:END -->
+
+This project follows the [all-contributors](https://github.com/kentcdodds/all-contributors) specification. Contributions of any kind welcome!
