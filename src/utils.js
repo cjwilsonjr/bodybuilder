@@ -101,7 +101,7 @@ export function toBool (filters) {
 }
 
 function unwrap (arr) {
-  return arr.length > 1 ? arr : _.last(arr)
+  return arr; // don't unwrap an array
 }
 
 export function pushQuery (existing, boolKey, type, ...args) {
