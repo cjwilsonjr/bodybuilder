@@ -27,7 +27,8 @@
     "git-commit": "git add docs browser && git commit -m \"Commit built files\"",
     "git-push": "git push origin master && git push origin v$npm_package_version",
     "add": "all-contributors add",
-    "generate": "all-contributors generate"
+    "generate": "all-contributors generate",
+    "prepare": "npm run build"
   },
   "author": "Daniel Paz-Soldan <daniel.pazsoldan@gmail.com>",
   "contributors": [
